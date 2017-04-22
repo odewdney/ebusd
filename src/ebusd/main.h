@@ -19,6 +19,16 @@
 #ifndef EBUSD_MAIN_H_
 #define EBUSD_MAIN_H_
 
+#define PACKAGE "ebusd"
+#define PACKAGE_NAME "ebusd"
+#define PACKAGE_VERSION "3.0pre"
+#define PACKAGE_STRING PACKAGE_NAME " " PACKAGE_VERSION
+#define REVISION __DATE__
+#define SCAN_VERSION "1.0"
+#define PACKAGE_BUGREPORT "ebus@ebus"
+#define PACKAGE_LOGFILE "ebusd.log"
+
+
 #include <stdint.h>
 #include <string>
 #include "lib/ebus/data.h"

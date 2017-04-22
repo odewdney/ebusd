@@ -20,6 +20,8 @@
 #  include <config.h>
 #endif
 
+#ifdef _MQ
+
 #include "ebusd/mqtthandler.h"
 #include <csignal>
 #include "lib/utils/log.h"
@@ -614,3 +616,5 @@ void MqttHandler::publishTopic(string topic, string data, bool retain) {
 }
 
 }  // namespace ebusd
+
+#endif

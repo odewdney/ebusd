@@ -19,6 +19,10 @@
 #ifndef LIB_EBUS_DATA_H_
 #define LIB_EBUS_DATA_H_
 
+#ifdef _WIN32
+typedef int ssize_t;
+#endif
+
 #include <string>
 #include <iostream>
 #include <sstream>
@@ -690,7 +694,8 @@ class DataFieldTemplates : public MappedFileReader {
   /**
    * Constructs a new instance.
    */
-  DataFieldTemplates() : MappedFileReader::MappedFileReader(false) {}
+//  DataFieldTemplates() : MappedFileReader::MappedFileReader(false) {}
+  DataFieldTemplates() : MappedFileReader(false) {}
 
   /**
    * Constructs a new copied instance.

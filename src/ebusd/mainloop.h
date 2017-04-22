@@ -46,7 +46,7 @@ class UserList : public UserInfo, public MappedFileReader {
    * Constructor.
    * @param defaultLevels the default access levels.
    */
-  explicit UserList(const string defaultLevels) : MappedFileReader::MappedFileReader(false) {
+  explicit UserList(const string defaultLevels) : MappedFileReader(false) {
     if (!defaultLevels.empty()) {
       string levels = defaultLevels;
       transform(levels.begin(), levels.end(), levels.begin(), [](unsigned char c) {

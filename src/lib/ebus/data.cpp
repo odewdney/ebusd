@@ -20,6 +20,11 @@
 #  include <config.h>
 #endif
 
+#ifdef _WIN32
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#endif
+
 #include "lib/ebus/data.h"
 #include <math.h>
 #include <iostream>
@@ -85,8 +90,9 @@ const string AttributedItem::pluck(map<string, string>& row, string key) {
   if (it == row.end()) {
     return "";
   }
+  const string ret = it->second;
   row.erase(it);
-  return it->second;
+  return ret;
 }
 
 void AttributedItem::dumpString(ostream& output, const string str, const bool prependFieldSeparator) {
@@ -1084,7 +1090,7 @@ result_t DataFieldSet::write(istringstream& input, SymbolString& data,
 
 
 DataFieldTemplates::DataFieldTemplates(DataFieldTemplates& other)
-    : MappedFileReader::MappedFileReader(false) {
+    : MappedFileReader(false) {
   for (auto it : other.m_fieldsByName) {
     m_fieldsByName[it.first] = it.second->clone();
   }

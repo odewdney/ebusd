@@ -20,6 +20,11 @@
 #  include <config.h>
 #endif
 
+#ifdef _WIN32
+#define strcasecmp _stricmp
+#define snprintf(b,s,...) _snprintf_s(b,s,_TRUNCATE, __VA_ARGS__ )
+#endif
+
 #include "ebusd/mainloop.h"
 #include <iomanip>
 #include <deque>
@@ -283,6 +288,7 @@ void MainLoop::run() {
           }
         }
       }
+#ifdef _REV_CHECK
       if (now > nextCheckRun) {
         TCPClient client;
         TCPSocket* socket = client.connect("ebusd.eu", 80);
@@ -376,7 +382,8 @@ void MainLoop::run() {
         }
         nextCheckRun = now + CHECK_DELAY;
       }
-      time(&lastTaskRun);
+#endif
+	  time(&lastTaskRun);
     }
     time(&now);
     if (!dataSinks.empty()) {
@@ -404,7 +411,7 @@ void MainLoop::run() {
       logDebug(lf_main, ">>> %s", request.c_str());
       ostream << decodeMessage(request, netMessage->isHttp(), connected, listening, user, reload);
 
-      if (ostream.tellp() == 0 && !netMessage->isHttp()) {
+	  if (ostream.tellp() == (std::ostringstream::pos_type(0)) && !netMessage->isHttp()) {
         ostream << getResultCode(RESULT_EMPTY);
       }
       if (ostream.tellp() > 100) {
@@ -412,7 +419,7 @@ void MainLoop::run() {
       } else {
         logDebug(lf_main, "<<< %s", ostream.str().c_str());
       }
-      if (ostream.tellp() == 0) {
+	  if (ostream.tellp() == (std::ostringstream::pos_type(0))) {
         ostream << "\n";  // only for HTTP
       } else if (!netMessage->isHttp()) {
         ostream << "\n\n";
@@ -1263,12 +1270,24 @@ string MainLoop::executeFind(vector<string> &args, string levels) {
           snprintf(str, sizeof(str), "any");
         }
         if (lastup != 0) {
+#ifdef _WIN32
+			SYSTEMTIME st;
+			GetLocalTime(&st);
+#else
           struct tm td;
           localtime_r(&lastup, &td);
+#endif
           size_t len = strlen(str);
-          snprintf(str+len, sizeof(str)-len, ", lastup=%04d-%02d-%02d %02d:%02d:%02d",
-            td.tm_year+1900, td.tm_mon+1, td.tm_mday,
-            td.tm_hour, td.tm_min, td.tm_sec);
+#ifdef _WIN32
+			  _snprintf_s(str + len, sizeof(str)-len, _TRUNCATE, ", lastup=%04d-%02d-%02d %02d:%02d:%02d",
+			  st.wYear, st.wMonth, st.wDay,
+			  st.wHour, st.wMinute, st.wSecond
+#else
+			  snprintf(str+len, sizeof(str)-len, ", lastup=%04d-%02d-%02d %02d:%02d:%02d",
+			  td.tm_year+1900, td.tm_mon+1, td.tm_mday,
+            td.tm_hour, td.tm_min, td.tm_sec
+#endif
+			);
         }
         result << " [ZZ=" << str;
         if (message->isPassive()) {

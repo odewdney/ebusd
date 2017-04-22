@@ -25,12 +25,18 @@ namespace ebusd {
 
 /** \file lib/utils/clock.h */
 
+#ifdef _WIN32
+//	int asprintf(char **ret, const char *format, ...);
+	int vasprintf(char **ret, const char *format, va_list ap);
+	int getsubopt(char **optionp, char * const *tokens, char **valuep);
+
+#else
 /**
  * Get the real time system clock.
  * @param t the @a timespec in which to store the time.
  */
 void clockGettime(struct timespec* t);
-
+#endif
 }  // namespace ebusd
 
 #endif  // LIB_UTILS_CLOCK_H_

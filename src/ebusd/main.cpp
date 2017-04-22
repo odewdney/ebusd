@@ -21,9 +21,14 @@
 #endif
 
 #include "ebusd/main.h"
+
+#ifdef _WIN32
+#include "lib/utils/argp.h"
+#else
 #include <dirent.h>
-#include <sys/stat.h>
 #include <argp.h>
+#endif
+#include <sys/stat.h>
 #include <csignal>
 #include <iostream>
 #include <algorithm>
@@ -153,10 +158,10 @@ static const char argpdoc[] =
 #define O_LOCAL  (O_PIDFIL+1)
 #define O_HTTPPT (O_LOCAL+1)
 #define O_HTMLPA (O_HTTPPT+1)
-#define O_LOG    (O_HTMLPA+1)
-#define O_LOGARE (O_LOG+1)
+#define O_LOGRAW    (O_HTMLPA+1)
+#define O_LOGARE (O_LOGRAW+1)
 #define O_LOGLEV (O_LOGARE+1)
-#define O_RAW    (O_LOGLEV+1)
+#define O_RAWLOG    (O_LOGLEV+1)
 #define O_RAWFIL (O_RAW+1)
 #define O_RAWSIZ (O_RAWFIL+1)
 #define O_DMPFIL (O_RAWSIZ+1)
@@ -204,7 +209,7 @@ static const struct argp_option argpoptions[] = {
 
   {NULL,             0,        NULL,    0, "Log options:", 5 },
   {"logfile",        'l',      "FILE",  0, "Write log to FILE (only for daemon) [" PACKAGE_LOGFILE "]", 0 },
-  {"log",            O_LOG,    "AREAS LEVEL", 0, "Only write log for matching AREA(S) below or equal to LEVEL"
+  {"log",            O_LOGRAW,    "AREAS LEVEL", 0, "Only write log for matching AREA(S) below or equal to LEVEL"
       " (alternative to --logareas/--logevel, may be used multiple times) [all notice]", 0 },
   {"logareas",       O_LOGARE, "AREAS", 0, "Only write log for matching AREA(S): main|network|bus|update|all"
       " [all]", 0 },
@@ -446,7 +451,7 @@ error_t parse_opt(int key, char *arg, struct argp_state *state) {
     }
     opt->logFile = arg;
     break;
-  case O_LOG:  // --log=area(s) level
+  case O_LOGRAW:  // --log=area(s) level
     {
       char* pos = strchr(arg, ' ');
       if (pos == NULL) {
@@ -548,6 +553,10 @@ error_t parse_opt(int key, char *arg, struct argp_state *state) {
 }
 
 void daemonize() {
+#ifdef _WIN32
+	printf("no daemon\n");
+	exit(1);
+#else
   // fork off the parent process
   pid_t pid = fork();
 
@@ -598,7 +607,7 @@ void daemonize() {
     logError(lf_main, "can't open pidfile: %s", opt.pidFile);
     exit(EXIT_FAILURE);
   }
-
+#endif
   isDaemon = true;
 }
 
@@ -633,10 +642,12 @@ void shutdown() {
   }
   s_templatesByPath.clear();
 
+#ifndef _WIN32
   // reset all signal handlers to default
   signal(SIGHUP, SIG_DFL);
   signal(SIGINT, SIG_DFL);
   signal(SIGTERM, SIG_DFL);
+#endif
 
   // delete daemon pid file if necessary
   closePidFile();
@@ -651,6 +662,7 @@ void shutdown() {
  * The signal handling function.
  * @param sig the received signal.
  */
+#ifndef _WIN32
 void signalHandler(int sig) {
   switch (sig) {
   case SIGHUP:
@@ -673,6 +685,7 @@ void signalHandler(int sig) {
     break;
   }
 }
+#endif
 
 /**
  * Collect configuration files matching the prefix and extension from the specified path.
@@ -686,6 +699,47 @@ void signalHandler(int sig) {
  */
 static result_t collectConfigFiles(const string path, const string prefix, const string extension,
     vector<string>& files, vector<string>* dirs = NULL, bool* hasTemplates = NULL) {
+#ifdef _WIN32
+	HANDLE hFind;
+	WIN32_FIND_DATAA findData;
+
+	hFind = FindFirstFileA((path+"\\*.*").c_str(), &findData);
+	if (INVALID_HANDLE_VALUE == hFind){
+		return RESULT_ERR_NOTFOUND;
+	}
+
+	do{
+		string name = findData.cFileName;
+		if (name == "." || name == "..") {
+			continue;
+		}
+#ifdef _WIN32
+#define PATH_SEP "\\"
+#else
+#define PATH_SEP "/"
+#endif
+		const string p = path + PATH_SEP + name;
+		if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+			if (dirs != NULL) {
+				dirs->push_back(p);
+			}
+		} else if ((findData.dwFileAttributes & (FILE_ATTRIBUTE_DEVICE  | FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM )
+			) == 0 && name.length() >= extension.length()
+			&& name.substr(name.length()-extension.length()) == extension) {
+			if (name == "_templates"+extension) {
+				if (hasTemplates) {
+					*hasTemplates = true;
+				}
+			} else if (prefix.length() == 0
+				|| (name.length() >= prefix.length() && name.substr(0, prefix.length()) == prefix)) {
+				files.push_back(p);
+			}
+		}
+
+	} while( FindNextFileA(hFind, &findData) != 0);
+	FindClose(hFind);
+
+#else
   DIR* dir = opendir(path.c_str());
 
   if (dir == NULL) {
@@ -721,13 +775,13 @@ static result_t collectConfigFiles(const string path, const string prefix, const
     }
   }
   closedir(dir);
-
+#endif
   return RESULT_OK;
 }
 
 DataFieldTemplates* getTemplates(const string filename) {
   string path;
-  size_t pos = filename.find_last_of('/');
+  size_t pos = filename.find_last_of(PATH_SEP_CHAR);
   if (pos != string::npos) {
     path = filename.substr(0, pos);
   }
@@ -764,7 +818,13 @@ static bool readTemplates(const string path, const string extension, bool availa
     return true;
   }
   string errorDescription;
-  result_t result = templates->readFromFile(path+"/_templates"+extension, errorDescription, verbose);
+#ifdef _WIN32
+#define PATH_SEP "\\"
+#else
+#define PATH_SEP "/"
+#endif
+
+  result_t result = templates->readFromFile(path+ PATH_SEP +"_templates"+extension, errorDescription, verbose);
   if (result == RESULT_OK) {
     logInfo(lf_main, "read templates in %s", path.c_str());
     return true;
@@ -1057,7 +1117,9 @@ result_t loadScanConfigFile(MessageMap* messages, symbol_t address, string& rela
 int main(int argc, char* argv[]) {
   struct argp aargp = { argpoptions, parse_opt, NULL, argpdoc, datahandler_getargs(), NULL, NULL };
   int arg_index = -1;
+#ifndef _WIN32
   setenv("ARGP_HELP_FMT", "no-dup-args-note", 0);
+#endif
 
   if (argp_parse(&aargp, argc, argv, ARGP_IN_ORDER, &arg_index, &opt) != 0) {
     logError(lf_main, "invalid arguments");
@@ -1131,10 +1193,12 @@ int main(int argc, char* argv[]) {
     daemonize();  // make me daemon
   }
 
+#ifndef _WIN32
   // trap signals that we expect to receive
   signal(SIGHUP, signalHandler);
   signal(SIGINT, signalHandler);
   signal(SIGTERM, signalHandler);
+#endif
 
   logNotice(lf_main, PACKAGE_STRING "." REVISION " started");
 
@@ -1158,5 +1222,19 @@ int main(int argc, char* argv[]) {
 }  // namespace ebusd
 
 int main(int argc, char* argv[]) {
-  return ebusd::main(argc, argv);
+	WORD wVersionRequested;
+	WSADATA wsaData;
+	int err;
+
+	/* Use the MAKEWORD(lowbyte, highbyte) macro declared in Windef.h */
+	wVersionRequested = MAKEWORD(2, 2);
+
+	err = WSAStartup(wVersionRequested, &wsaData);
+	if (err != 0) {
+		/* Tell the user that we could not find a usable */
+		/* Winsock DLL.                                  */
+		printf("WSAStartup failed with error: %d\n", err);
+		return 1;
+	}
+	return ebusd::main(argc, argv);
 }

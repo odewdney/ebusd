@@ -19,7 +19,10 @@
 #ifndef LIB_UTILS_THREAD_H_
 #define LIB_UTILS_THREAD_H_
 
+#ifdef _WIN32
+#else
 #include <pthread.h>
+#endif
 
 namespace ebusd {
 
@@ -45,7 +48,11 @@ class Thread {
    * @param arg pointer to the @a Thread.
    * @return NULL.
    */
+#ifdef _WIN32
+  static unsigned int __stdcall runThread(void* arg);
+#else
   static void* runThread(void* arg);
+#endif
 
   /**
    * Return whether this @a Thread is still running and not yet stopped.
@@ -75,7 +82,12 @@ class Thread {
    * Get the thread id.
    * @return the thread id.
    */
+#ifdef _WIN32
+  unsigned int self() { return m_threadid; }
+#else
   pthread_t self() { return m_threadid; }
+#endif
+	  
 
 
  protected:
@@ -84,6 +96,10 @@ class Thread {
    */
   virtual void run() = 0;
 
+protected:
+#ifdef _WIN32
+	HANDLE m_threadHandle;
+#endif
 
  private:
   /**
@@ -92,7 +108,12 @@ class Thread {
   void enter();
 
   /** own thread id */
-  pthread_t m_threadid;
+#ifdef _WIN32
+  unsigned int 	  m_threadid;
+#else
+  pthread_t 	  m_threadid;
+
+#endif
 
   /** Whether the thread was started. */
   bool m_started;
@@ -134,12 +155,17 @@ class WaitThread : public Thread {
   bool Wait(int seconds);
 
 
- private:
+private:
+#ifdef _WIN32
+	HANDLE m_waitEvent;
+#else
+
   /** the mutex for waiting. */
   pthread_mutex_t m_mutex;
 
   /** the condition for waiting. */
   pthread_cond_t m_cond;
+#endif
 };
 
 }  // namespace ebusd

@@ -29,6 +29,46 @@
 
 namespace ebusd {
 
+bool NetMessage::add(string request) {
+	if (request.length() > 0) {
+		request.erase(remove(request.begin(), request.end(), '\r'), request.end());
+		m_request.append(request);
+	}
+	size_t pos = m_request.find(m_isHttp ? "\n\n" : "\n");
+	if (pos != string::npos) {
+		if (m_isHttp) {
+			pos = m_request.find("\n");
+			m_request.resize(pos);  // reduce to first line
+			// typical first line: GET /ehp/outsidetemp HTTP/1.1
+			pos = m_request.rfind(" HTTP/");
+			if (pos != string::npos) {
+				m_request.resize(pos);  // remove "HTTP/x.x" suffix
+			}
+			pos = 0;
+			while ((pos = m_request.find('%', pos)) != string::npos && pos + 2 <= m_request.length()) {
+				unsigned int value1, value2;
+#ifdef _WIN32
+				if (sscanf_s("%1x%1x", m_request.c_str() + pos + 1, &value1, &value2) < 2) {
+#else
+				if (sscanf("%1x%1x", m_request.c_str() + pos + 1, &value1, &value2) < 2) {
+#endif
+					break;
+				}
+				m_request[pos] = static_cast<char>(((value1 & 0x0f) << 4) | (value2 & 0x0f));
+				m_request.erase(pos + 1, 2);
+			}
+		}
+		else if (pos + 1 == m_request.length()) {
+			m_request.resize(pos);  // reduce to complete lines
+		}
+		return true;
+	}
+	return m_request.length() == 0 && m_listening;
+}
+
+
+
+
 int Connection::m_ids = 0;
 
 #ifndef POLLRDHUP
@@ -36,8 +76,15 @@ int Connection::m_ids = 0;
 #endif
 
 void Connection::run() {
-  int ret;
-  struct timespec tdiff;
+#ifdef _WIN32
+  // TODO: Connection polling
+	DWORD ret;
+  HANDLE evts[2];
+  evts[0] = m_notify.notifyHandle();
+  evts[1] = m_socket->getEventHandle();
+#else
+	int ret;
+	struct timespec tdiff;
 
   // set timeout
   tdiff.tv_sec = 2;
@@ -70,11 +117,17 @@ void Connection::run() {
   FD_SET(sockFD, &exceptfds);
 #endif
 #endif
+#endif
 
   bool closed = false;
   NetMessage message(m_isHttp);
 
   while (!closed) {
+#ifdef _WIN32
+	  // TODO: Connection polling
+	  ret = WSAWaitForMultipleEvents(2, evts, FALSE, 2000, FALSE);
+
+#else
 #ifdef HAVE_PPOLL
     // wait for new fd event
     ret = ppoll(fds, nfds, &tdiff, NULL);
@@ -86,8 +139,27 @@ void Connection::run() {
     ret = pselect(maxfd + 1, &readfds, NULL, &exceptfds, &tdiff, NULL);
 #endif
 #endif
+#endif
     bool newData = false;
-    if (ret != 0) {
+#ifdef _WIN32
+		// TODO: Connection polling
+	if (ret == (WSA_WAIT_EVENT_0)) { // notify event
+		break;
+	}
+	else if (ret == (WSA_WAIT_EVENT_0 + 1)) { // socket event
+		WSANETWORKEVENTS e;
+		m_socket->getEvents(&e);
+		if (e.lNetworkEvents & FD_READ)
+			newData = true;
+		if (e.lNetworkEvents & FD_CLOSE)
+			closed = true;
+	}
+	else if (ret != WSA_WAIT_TIMEOUT) {
+		break;
+	}
+
+#else
+	if (ret != 0) {
 #ifdef HAVE_PPOLL
       // new data from notify
       if (ret < 0 || (fds[0].revents & (POLLIN | POLLERR | POLLHUP | POLLRDHUP))
@@ -108,7 +180,8 @@ void Connection::run() {
       closed = FD_ISSET(sockFD, &exceptfds);
 #endif
 #endif
-    }
+	}
+#endif
 
     if (newData || message.isListening()) {
       char data[256];
@@ -188,10 +261,34 @@ Network::~Network() {
   join();
 }
 
+void Network::stop() const { 
+	m_notify.notify(); 
+#ifdef _WIN32
+	Sleep(100);
+#else
+	usleep(100000); 
+#endif
+}
+
+
 void Network::run() {
   if (!m_listening) {
     return;
   }
+#ifdef _WIN32
+  // TODO: Connection polling
+  DWORD ret;
+  int socketCount = m_httpServer ? 2 : 1;
+  int nfds = 1 + socketCount;
+  HANDLE evts[3];
+
+  evts[0] = m_notify.notifyHandle();
+  evts[1] = m_tcpServer->getEventHandle();
+  if (m_httpServer) {
+	  evts[2] = m_httpServer->getEventHandle();
+  }
+
+#else
   int ret;
   struct timespec tdiff;
 
@@ -234,7 +331,16 @@ void Network::run() {
   }
 #endif
 #endif
+#endif
   while (true) {
+#ifdef _WIN32
+	  // TODO: Connection polling
+	  ret = WSAWaitForMultipleEvents(nfds, evts, FALSE, 1000, FALSE);
+	  if (ret == WSA_WAIT_TIMEOUT) {
+		  cleanConnections();
+		  continue;
+	  }
+#else
 #ifdef HAVE_PPOLL
     // wait for new fd event
     ret = ppoll(fds, nfds, &tdiff, NULL);
@@ -246,11 +352,34 @@ void Network::run() {
     ret = pselect(maxfd + 1, &readfds, NULL, NULL, &tdiff, NULL);
 #endif
 #endif
-    if (ret == 0) {
-      cleanConnections();
-      continue;
-    }
+	if (ret == 0) {
+		cleanConnections();
+		continue;
+	}
+#endif
     bool newData = false, isHttp = false;
+#ifdef _WIN32
+	// TODO: Connection polling
+	if (ret == (WSA_WAIT_EVENT_0)) { // notify event
+		break;
+	}
+	else if (ret == (WSA_WAIT_EVENT_0 + 1)) { // socket event
+		WSANETWORKEVENTS e;
+		m_tcpServer->getEvents(&e);
+		if (e.lNetworkEvents & FD_ACCEPT)
+			newData = true;
+	}
+	else if (ret == (WSA_WAIT_EVENT_0 + 2)) { // http event
+		WSANETWORKEVENTS e;
+		m_httpServer->getEvents(&e);
+		if (e.lNetworkEvents & FD_ACCEPT)
+			isHttp = true;
+	}
+	else{
+		break;
+	}
+
+#else
 #ifdef HAVE_PPOLL
     // new data from notify
     if (fds[0].revents & POLLIN) {
@@ -276,6 +405,7 @@ void Network::run() {
     }
 #endif
 #endif
+#endif
     if (newData) {
       TCPSocket* socket = (isHttp ? m_httpServer : m_tcpServer)->newSocket();
       if (socket == NULL) {
@@ -291,14 +421,16 @@ void Network::run() {
 }
 
 void Network::cleanConnections() {
-  list<Connection*>::iterator c_it;
-  for (c_it = m_connections.begin(); c_it != m_connections.end(); c_it++) {
-    if (!(*c_it)->isRunning()) {
-      Connection* connection = *c_it;
-      c_it = m_connections.erase(c_it);
-      delete connection;
-      logDebug(lf_network, "dead connection removed - %d", m_connections.size());
-    }
+	list<Connection*>::iterator c_it = m_connections.begin();
+  while (c_it != m_connections.end()) {
+	  if (!(*c_it)->isRunning()) {
+		  Connection* connection = *c_it;
+		  c_it = m_connections.erase(c_it);
+		  delete connection;
+		  logDebug(lf_network, "dead connection removed - %d", m_connections.size());
+	  }
+	  else
+		  c_it++;
   }
 }
 

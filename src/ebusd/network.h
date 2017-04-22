@@ -27,6 +27,7 @@
 #include "lib/utils/queue.h"
 #include "lib/utils/notify.h"
 #include "lib/utils/thread.h"
+#include "lib/utils/lock.h"
 
 namespace ebusd {
 
@@ -48,16 +49,20 @@ class NetMessage {
    */
   explicit NetMessage(const bool isHttp)
     : m_isHttp(isHttp), m_resultSet(false), m_disconnect(false), m_listening(false), m_listenSince(0) {
+#ifndef _WIN32
     pthread_mutex_init(&m_mutex, NULL);
     pthread_cond_init(&m_cond, NULL);
+#endif
   }
 
   /**
    * Destructor.
    */
   ~NetMessage() {
+#ifndef _WIN32
     pthread_mutex_destroy(&m_mutex);
     pthread_cond_destroy(&m_cond);
+#endif
   }
 
 
@@ -75,38 +80,7 @@ class NetMessage {
    * @param request the request data from the client.
    * @return true when the request is complete and the response shall be prepared.
    */
-  bool add(string request) {
-    if (request.length() > 0) {
-      request.erase(remove(request.begin(), request.end(), '\r'), request.end());
-      m_request.append(request);
-    }
-    size_t pos = m_request.find(m_isHttp ? "\n\n" : "\n");
-    if (pos != string::npos) {
-      if (m_isHttp) {
-        pos = m_request.find("\n");
-        m_request.resize(pos);  // reduce to first line
-        // typical first line: GET /ehp/outsidetemp HTTP/1.1
-        pos = m_request.rfind(" HTTP/");
-        if (pos != string::npos) {
-          m_request.resize(pos);  // remove "HTTP/x.x" suffix
-        }
-        pos = 0;
-        while ((pos=m_request.find('%', pos)) != string::npos && pos+2 <= m_request.length()) {
-          unsigned int value1, value2;
-          if (sscanf("%1x%1x", m_request.c_str()+pos+1, &value1, &value2) < 2) {
-            break;
-          }
-          m_request[pos] = static_cast<char>(((value1&0x0f) << 4) | (value2&0x0f));
-          m_request.erase(pos+1, 2);
-        }
-      } else if (pos+1 == m_request.length()) {
-        m_request.resize(pos);  // reduce to complete lines
-      }
-      return true;
-    }
-    return m_request.length() == 0 && m_listening;
-  }
-
+	 bool add(string request);
   /**
    * Return whether this is a HTTP message.
    * @return whether this is a HTTP message.
@@ -130,16 +104,29 @@ class NetMessage {
    * @return the result string.
    */
   string getResult() {
+#ifdef _WIN32
+	  m_lock.Aquire();
+#else
     pthread_mutex_lock(&m_mutex);
+#endif
 
-    while (!m_resultSet)
+	while (!m_resultSet) {
+#ifdef _WIN32
+		m_lock.Wait();
+#else
       pthread_cond_wait(&m_cond, &m_mutex);
+#endif
+	}
 
     m_request.clear();
     string result = m_result;
     m_result.clear();
     m_resultSet = false;
+#ifdef _WIN32
+	m_lock.Release();
+#else
     pthread_mutex_unlock(&m_mutex);
+#endif
 
     return result;
   }
@@ -154,15 +141,24 @@ class NetMessage {
    */
   void setResult(const string result, const string user, const bool listening, const time_t listenUntil,
       const bool disconnect) {
+#ifdef _WIN32
+	  m_lock.Aquire();
+#else
     pthread_mutex_lock(&m_mutex);
+#endif
     m_result = result;
     m_user = user;
     m_disconnect = disconnect;
     m_listening = listening;
     m_listenSince = listenUntil;
     m_resultSet = true;
+#ifdef _WIN32
+	m_lock.Set();
+	m_lock.Release();
+#else
     pthread_cond_signal(&m_cond);
     pthread_mutex_unlock(&m_mutex);
+#endif
   }
 
   /**
@@ -198,11 +194,15 @@ class NetMessage {
   /** set to true when the client shall be disconnected. */
   bool m_disconnect;
 
+#ifdef _WIN32
+  Lock m_lock;
+#else
   /** mutex variable for exclusive lock. */
   pthread_mutex_t m_mutex;
 
   /** condition variable for exclusive lock. */
   pthread_cond_t m_cond;
+#endif
 
   /** whether the client is in listening mode. */
   bool m_listening;
@@ -292,7 +292,7 @@ class Network : public Thread {
   /**
    * shutdown network subsystem.
    */
-  void stop() const { m_notify.notify(); usleep(100000); }
+  void stop() const;
 
 
  private:

@@ -19,6 +19,8 @@
 #ifndef EBUSD_MQTTHANDLER_H_
 #define EBUSD_MQTTHANDLER_H_
 
+#ifdef _MQ
+
 #include <mosquitto.h>
 #include <map>
 #include <string>
@@ -143,5 +145,6 @@ class MqttHandler : public DataSink, public DataSource, public Thread {
 };
 
 }  // namespace ebusd
+#endif
 
 #endif  // EBUSD_MQTTHANDLER_H_

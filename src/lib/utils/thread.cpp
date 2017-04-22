@@ -20,26 +20,50 @@
 #  include <config.h>
 #endif
 
+#ifdef _WIN32
+#include <Windows.h>
+#include <process.h>
+#endif
+
 #include "lib/utils/thread.h"
 #include "lib/utils/clock.h"
 
 namespace ebusd {
 
-void* Thread::runThread(void* arg) {
+#ifdef _WIN32
+unsigned int Thread::runThread(void* arg) {
   reinterpret_cast<Thread*>(arg)->enter();
   return NULL;
 }
-
+#else
+void* Thread::runThread(void* arg) {
+	reinterpret_cast<Thread*>(arg)->enter();
+	return NULL;
+}
+#endif
 Thread::~Thread() {
   if (m_started) {
+#ifdef _WIN32
+	  TerminateThread(m_threadHandle,1);
+	  CloseHandle(m_threadHandle);
+#else
     pthread_cancel(m_threadid);
     pthread_detach(m_threadid);
+#endif
   }
 }
 
 bool Thread::start(const char* name) {
-  int result = pthread_create(&m_threadid, NULL, runThread, this);
-  if (result == 0) {
+#ifdef _WIN32
+	int result = 0;
+	//m_threadHandle = CreateThread(NULL, 0, runThread, this, 0, &m_threadid);
+	m_threadHandle = (HANDLE) _beginthreadex(NULL, 0, runThread, this, 0, &m_threadid);
+	if (m_threadHandle == NULL)
+		result = GetLastError();
+#else
+	int result = pthread_create(&m_threadid, NULL, runThread, this);
+#endif
+	if (result == 0) {
 #ifdef HAVE_PTHREAD_SETNAME_NP
 #ifndef __MACH__
     pthread_setname_np(m_threadid, name);
@@ -55,7 +79,11 @@ bool Thread::join() {
   int result = -1;
   if (m_started) {
     m_stopped = true;
+#ifdef _WIN32
+	result = WaitForSingleObject(m_threadHandle, INFINITE) != WAIT_OBJECT_0;
+#else
     result = pthread_join(m_threadid, NULL);
+#endif
     if (result == 0) {
       m_started = false;
     }
@@ -72,36 +100,56 @@ void Thread::enter() {
 
 WaitThread::WaitThread()
   : Thread() {
+#ifdef _WIN32
+	m_waitEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+#else
   pthread_mutex_init(&m_mutex, NULL);
   pthread_cond_init(&m_cond, NULL);
+#endif
 }
 
 WaitThread::~WaitThread() {
-  pthread_mutex_destroy(&m_mutex);
+#ifdef _WIN32
+	CloseHandle(m_waitEvent);
+#else
+	pthread_mutex_destroy(&m_mutex);
   pthread_cond_destroy(&m_cond);
+#endif
 }
 
 void WaitThread::stop() {
-  pthread_mutex_lock(&m_mutex);
+#ifdef _WIN32
+	SetEvent(m_waitEvent);
+#else
+	pthread_mutex_lock(&m_mutex);
   pthread_cond_signal(&m_cond);
   pthread_mutex_unlock(&m_mutex);
+#endif
   Thread::stop();
 }
 
 bool WaitThread::join() {
-  pthread_mutex_lock(&m_mutex);
+#ifdef _WIN32
+	SetEvent(m_waitEvent);
+#else
+	pthread_mutex_lock(&m_mutex);
   pthread_cond_signal(&m_cond);
   pthread_mutex_unlock(&m_mutex);
+#endif
   return Thread::join();
 }
 
 bool WaitThread::Wait(int seconds) {
+#ifdef _WIN32
+	WaitForSingleObject(m_waitEvent, seconds * 1000);
+#else
   struct timespec t;
   clockGettime(&t);
   t.tv_sec += seconds;
   pthread_mutex_lock(&m_mutex);
   pthread_cond_timedwait(&m_cond, &m_mutex, &t);
   pthread_mutex_unlock(&m_mutex);
+#endif
   return isRunning();
 }
 

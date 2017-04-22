@@ -525,7 +525,11 @@ result_t Message::create(map<string, string> row, vector< map<string, string> > 
     symbol_t dstAddress = *it;
     string useCircuit = circuit;
     if (multiple) {
-      snprintf(num, sizeof(num), ".%d", index);
+#ifdef _WIN32
+      _snprintf_s(num, sizeof(num), _TRUNCATE, ".%d", index);
+#else
+		snprintf(num, sizeof(num), ".%d", index);
+#endif
       useCircuit = useCircuit + num;
     }
     Message* message;
@@ -1648,7 +1652,8 @@ result_t Instruction::create(const string& contextPath, const string type,
     if (row.empty()) {
       return RESULT_ERR_INVALID_ARG;
     }
-    size_t pos = contextPath.find_last_of('/');
+
+	size_t pos = contextPath.find_last_of(PATH_SEP_CHAR);
     string path;
     if (pos == string::npos) {
       path = contextPath;
@@ -1717,7 +1722,7 @@ result_t LoadInstruction::execute(MessageMap* messages, ostringstream& log, Cond
     result_t temp;
     symbol_t address = (symbol_t)parseInt(m_defaults["zz"].c_str(), 16, 0, 0xff, temp);
     if (temp == RESULT_OK) {
-      size_t pos = m_filename.find_last_of('/');
+      size_t pos = m_filename.find_last_of(PATH_SEP_CHAR);
       string filename;
       if (pos == string::npos) {
         filename = m_filename;
@@ -2171,9 +2176,15 @@ result_t MessageMap::addFromFile(map<string, string>& row, vector< map<string, s
       if (result == RESULT_OK) {
         result = add(message);
         if (result == RESULT_ERR_DUPLICATE_NAME) {
-          errorDescription = "invalid name";
+			string nameKey = string(message->isPassive() ? "P" : (message->isWrite() ? "W" : "R")) + 
+				message->getCircuit() + FIELD_SEPARATOR + message->getName();
+			printf("Error: duplicate name: %s:%d %s\r\n", filename.c_str(), lineNo, nameKey.c_str());
+			result = RESULT_OK;
+          //errorDescription = "invalid name";
         } else if (result == RESULT_ERR_DUPLICATE) {
-          errorDescription = "duplicate ID";
+			printf("Error: duplicate id: %s:%d %ld\r\n", filename.c_str(), lineNo, message->getKey());
+			result = RESULT_OK;
+			//errorDescription = "duplicate ID";
         }
       }
       if (result != RESULT_OK) {
@@ -2562,10 +2573,13 @@ void MessageMap::clear() {
         if (keyIt != m_messagesByKey.end()) {
           vector<Message*>* keyMessages = &keyIt->second;
           if (!keyMessages->empty()) {
-            for (vector<Message*>::iterator kit = keyMessages->begin(); kit != keyMessages->end(); kit++) {
-              if (*kit == message) {
-                keyMessages->erase(kit--);
-              }
+			  vector<Message*>::iterator kit = keyMessages->begin();
+            while ( kit != keyMessages->end()) {
+				if (*kit == message) {
+					kit = keyMessages->erase(kit);
+				}
+				else
+					kit++;
             }
           }
         }

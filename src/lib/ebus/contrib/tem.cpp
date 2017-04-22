@@ -20,6 +20,10 @@
 #  include <config.h>
 #endif
 
+#ifdef _WIN32
+#define strcasecmp _stricmp
+#endif
+
 #include "lib/ebus/contrib/tem.h"
 #include <math.h>
 #include <iostream>

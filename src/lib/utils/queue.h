@@ -19,10 +19,15 @@
 #ifndef LIB_UTILS_QUEUE_H_
 #define LIB_UTILS_QUEUE_H_
 
+#ifdef _WIN32
+#include "lib/utils/lock.h"
+#else
 #include <pthread.h>
 #include <errno.h>
-#include <list>
 #include "lib/utils/clock.h"
+#endif
+
+#include <list>
 
 namespace ebusd {
 
@@ -41,16 +46,20 @@ class Queue {
    * Constructor.
    */
   Queue() {
+#ifndef _WIN32
     pthread_mutex_init(&m_mutex, NULL);
     pthread_cond_init(&m_cond, NULL);
+#endif
   }
 
   /**
    * Destructor.
    */
   ~Queue() {
+#ifndef _WIN32
     pthread_mutex_destroy(&m_mutex);
     pthread_cond_destroy(&m_cond);
+#endif
   }
 
 
@@ -68,10 +77,20 @@ class Queue {
    * @param item the item to add.
    */
   void push(T item) {
+#ifdef _WIN32
+	  m_lock.Aquire();
+#else
     pthread_mutex_lock(&m_mutex);
+#endif
     m_queue.push_back(item);
+#ifdef _WIN32
+	m_lock.Set();
+	m_lock.Release();
+#else
     pthread_cond_broadcast(&m_cond);
-    pthread_mutex_unlock(&m_mutex);
+    
+	tex_unlock(&m_mutex);
+#endif
   }
 
   /**
@@ -81,16 +100,34 @@ class Queue {
    */
   T pop(int timeout = 0) {
     T item;
+#ifdef _WIN32
+	m_lock.Aquire();
+#else
     pthread_mutex_lock(&m_mutex);
+#endif
     if (timeout > 0) {
-      struct timespec t;
-      clockGettime(&t);
-      t.tv_sec += timeout;
-      while (m_queue.empty()) {
-        if (pthread_cond_timedwait(&m_cond, &m_mutex, &t) == ETIMEDOUT) {
-          break;
-        }
-      }
+#ifdef _WIN32
+		DWORD ms = timeout * 1000;
+      while (m_queue.empty() && ms > 0) {
+		  FILETIME start, end;
+		  GetSystemTimeAsFileTime(&start);
+		  DWORD ret = m_lock.Wait(ms);
+		  if (ret != WAIT_OBJECT_0){
+			  break;
+		  }
+		  GetSystemTimeAsFileTime(&end);
+		  ms -= (DWORD)(((*reinterpret_cast<long long*>(&end)) - (*reinterpret_cast<long long*>(&start))) / 10000);
+	  }
+#else
+		struct timespec t;
+		clockGettime(&t);
+		t.tv_sec += timeout;
+		while (m_queue.empty()) {
+			if (pthread_cond_timedwait(&m_cond, &m_mutex, &t) == ETIMEDOUT) {
+				break;
+			}
+		}
+#endif
     }
     if (m_queue.empty()) {
       item = NULL;
@@ -98,7 +135,11 @@ class Queue {
       item = m_queue.front();
       m_queue.pop_front();
     }
+#ifdef _WIN32
+	m_lock.Release();
+#else
     pthread_mutex_unlock(&m_mutex);
+#endif
     return item;
   }
 
@@ -110,7 +151,11 @@ class Queue {
    */
   bool remove(T item, bool wait = false) {
     bool ret = false;
-    pthread_mutex_lock(&m_mutex);
+#ifdef _WIN32
+	m_lock.Aquire();
+#else
+	pthread_mutex_lock(&m_mutex);
+#endif
     do {
       size_t oldSize = m_queue.size();
       if (oldSize > 0) {
@@ -120,9 +165,17 @@ class Queue {
           break;
         }
       }
+#ifdef _WIN32
+	  m_lock.Wait();
+#else
       pthread_cond_wait(&m_cond, &m_mutex);
+#endif
     } while (wait);
-    pthread_mutex_unlock(&m_mutex);
+#ifdef _WIN32
+	m_lock.Release();
+#else
+	pthread_mutex_unlock(&m_mutex);
+#endif
     return ret;
   }
 
@@ -132,13 +185,21 @@ class Queue {
    */
   T peek() {
     T item;
-    pthread_mutex_lock(&m_mutex);
+#ifdef _WIN32
+	m_lock.Aquire();
+#else
+	pthread_mutex_lock(&m_mutex);
+#endif
     if (m_queue.empty()) {
       item = NULL;
     } else {
       item = m_queue.front();
     }
-    pthread_mutex_unlock(&m_mutex);
+#ifdef _WIN32
+	m_lock.Release();
+#else
+	pthread_mutex_unlock(&m_mutex);
+#endif
     return item;
   }
 
@@ -146,12 +207,15 @@ class Queue {
  private:
   /** the queue itself */
   list<T> m_queue;
-
+#ifdef _WIN32
+  Lock m_lock;
+#else
   /** mutex variable for exclusive lock */
   pthread_mutex_t m_mutex;
 
   /** condition variable for exclusive lock */
   pthread_cond_t m_cond;
+#endif
 };
 
 }  // namespace ebusd

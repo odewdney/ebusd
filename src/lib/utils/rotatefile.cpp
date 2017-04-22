@@ -17,8 +17,12 @@
  */
 
 #include "lib/utils/rotatefile.h"
+#ifdef _WIN32
+#include <Windows.h>
+#else
 #include <sys/ioctl.h>
 #include <sys/file.h>
+#endif
 #include <fcntl.h>
 #include <errno.h>
 #include <cstdlib>
@@ -48,8 +52,12 @@ bool RotateFile::setEnabled(bool enabled) {
     m_stream = NULL;
   }
   if (enabled) {
-    m_stream = fopen(m_fileName.c_str(), m_textMode ? "w" : "wb");
-    m_fileSize = 0;
+#ifdef _WIN32
+	  errno_t e = fopen_s(&m_stream, m_fileName.c_str(), m_textMode ? "w" : "wb");
+#else
+	  m_stream = fopen(m_fileName.c_str(), m_textMode ? "w" : "wb");
+#endif
+	  m_fileSize = 0;
   }
   return true;
 }
@@ -59,13 +67,23 @@ void RotateFile::write(unsigned char* value, unsigned int size, bool received) {
     return;
   }
   if (m_textMode) {
-    struct timespec ts;
+#ifdef _WIN32
+	  SYSTEMTIME st;
+	  GetSystemTime(&st); 
+#else
+	  struct timespec ts;
     struct tm td;
     clockGettime(&ts);
     localtime_r(&ts.tv_sec, &td);
+#endif
     fprintf(m_stream, "%04d-%02d-%02d %02d:%02d:%02d.%03ld %c",
+#ifdef _WIN32
+		st.wYear, st.wMonth, st.wDay,
+		st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
+#else
       td.tm_year+1900, td.tm_mon+1, td.tm_mday,
       td.tm_hour, td.tm_min, td.tm_sec, ts.tv_nsec/1000000,
+#endif
       received ? '<' : '>');
     for (unsigned int pos = 0; pos < size; pos++) {
       fprintf(m_stream, "%2.2x ", value[pos]);
@@ -83,7 +101,11 @@ void RotateFile::write(unsigned char* value, unsigned int size, bool received) {
     string oldfile = string(m_fileName)+".old";
     if (rename(m_fileName.c_str(), oldfile.c_str()) == 0) {
       fclose(m_stream);
-      m_stream = fopen(m_fileName.c_str(), m_textMode ? "w" : "wb");
+#ifdef _WIN32
+	  errno_t e = fopen_s(&m_stream , m_fileName.c_str(), m_textMode ? "w" : "wb");
+#else
+	  m_stream = fopen(m_fileName.c_str(), m_textMode ? "w" : "wb");
+#endif
       m_fileSize = 0;
     }
   }

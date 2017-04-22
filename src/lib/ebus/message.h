@@ -30,6 +30,18 @@
 #include "lib/ebus/result.h"
 #include "lib/ebus/symbol.h"
 
+#ifdef _WIN32
+#define PATH_SEP_CHAR '\\'
+#else
+#define PATH_SEP_CHAR '/'
+#endif
+
+#ifdef _WIN32
+#define PATH_SEP "\\"
+#else
+#define PATH_SEP "/"
+#endif
+
 namespace ebusd {
 
 /** @file lib/ebus/message.h
@@ -1241,7 +1253,7 @@ class MessageMap : public MappedFileReader {
    * Construct a new instance.
    * @param addAll whether to add all messages, even if duplicate.
    */
-  explicit MessageMap(const bool addAll = false) : MappedFileReader::MappedFileReader(true),
+  explicit MessageMap(const bool addAll = false) : MappedFileReader(true),
     m_addAll(addAll), m_additionalScanMessages(false), m_maxIdLength(0), m_maxBroadcastIdLength(0),
     m_messageCount(0), m_conditionalMessageCount(0), m_passiveMessageCount(0) {
     m_scanMessage = Message::createScanMessage();

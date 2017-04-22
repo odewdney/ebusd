@@ -19,7 +19,9 @@
 #ifndef LIB_UTILS_NOTIFY_H_
 #define LIB_UTILS_NOTIFY_H_
 
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #include <fcntl.h>
 
 namespace ebusd {
@@ -35,6 +37,10 @@ class Notify {
    * constructs a new instance and do notifying.
    */
   Notify() {
+#ifdef _WIN32
+	  //m_evt = CreateEvent(NULL, FALSE, FALSE, NULL);
+	  m_evt = WSACreateEvent();
+#else
     int pipefd[2];
     int ret = pipe(pipefd);
 
@@ -44,31 +50,53 @@ class Notify {
 
       fcntl(m_sendfd, F_SETFL, O_NONBLOCK);
     }
+#endif
   }
 
   /**
    * destructor.
    */
-  ~Notify() { close(m_sendfd); close(m_recvfd); }
+  ~Notify() {
+#ifdef _WIN32
+	  WSACloseEvent(m_evt);
+#else
+	  close(m_sendfd); close(m_recvfd); 
+#endif
+  }
 
   /**
    * file descriptor to watch for notify event.
    * @return the notification value.
    */
+#ifdef _WIN32
+  WSAEVENT notifyHandle() { return m_evt; }
+#else
   int notifyFD() { return m_recvfd; }
+#endif
 
   /**
    * write notify event to file descriptor.
    * @return result of writing notification.
    */
-  ssize_t notify() const { return write(m_sendfd, "1", 1); }
+  ssize_t notify() const {
+#ifdef _WIN32
+	  WSASetEvent(m_evt);
+	  return 1;
+#else
+	  return write(m_sendfd, "1", 1); 
+#endif
+  }
 
  private:
+#ifdef _WIN32
+	 WSAEVENT m_evt;
+#else
   /** file descriptor to watch */
   int m_recvfd;
 
   /** file descriptor to notify */
   int m_sendfd;
+#endif
 };
 
 }  // namespace ebusd

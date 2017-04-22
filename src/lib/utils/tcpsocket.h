@@ -19,8 +19,14 @@
 #ifndef LIB_UTILS_TCPSOCKET_H_
 #define LIB_UTILS_TCPSOCKET_H_
 
+#ifdef _MSC_VER
+#include <winsock2.h>
+typedef int ssize_t;
+#define MSG_NOSIGNAL 0
+#else
 #include <unistd.h>
 #include <sys/socket.h>
+#endif
 #include <stdint.h>
 #include <string>
 
@@ -53,7 +59,15 @@ class TCPSocket {
   /**
    * destructor.
    */
-  ~TCPSocket() { close(m_sfd); }
+  ~TCPSocket() { 
+#ifdef _WIN32
+	  closesocket(m_sfd);
+	  if (m_evt != NULL)
+		  WSACloseEvent(m_evt);
+#else
+	  close(m_sfd);
+#endif
+  }
 
   /**
    * write bytes to opened file descriptor.
@@ -87,8 +101,20 @@ class TCPSocket {
    * returns the file descriptor.
    * @return the file descriptor.
    */
+#ifdef _WIN32
+  WSAEVENT getEventHandle() {
+	  if (m_evt == NULL)	  {
+		  m_evt = WSACreateEvent();
+		  WSAEventSelect(m_sfd, m_evt, FD_READ | FD_WRITE | FD_CLOSE);
+	  }
+	  return m_evt;
+  }
+  int getEvents(LPWSANETWORKEVENTS lpNetEv){
+	  return WSAEnumNetworkEvents(m_sfd, m_evt, lpNetEv);
+  }
+#else
   int getFD() const { return m_sfd; }
-
+#endif
   /**
    * returns status of file descriptor.
    * @return true if file descriptor is valid.
@@ -103,13 +129,18 @@ class TCPSocket {
     struct timeval t;
     t.tv_usec = 0;
     t.tv_sec = timeout;
-    setsockopt(m_sfd, SO_RCVTIMEO, SO_REUSEADDR, &t, sizeof(t));
-    setsockopt(m_sfd, SO_SNDTIMEO, SO_REUSEADDR, &t, sizeof(t));
+    setsockopt(m_sfd, SO_RCVTIMEO, SO_REUSEADDR, (const char*)&t, sizeof(t));
+	setsockopt(m_sfd, SO_SNDTIMEO, SO_REUSEADDR, (const char*)&t, sizeof(t));
   }
 
  private:
   /** file descriptor from tcp socket */
+#ifdef _WIN32
+	 SOCKET m_sfd;
+	 WSAEVENT m_evt;
+#else
   int m_sfd;
+#endif
 
   /** port of tcp socket */
   uint16_t m_port;
@@ -150,12 +181,24 @@ class TCPServer {
    * @param address the ip address.
    */
   TCPServer(const uint16_t port, const string address)
-    : m_lfd(0), m_port(port), m_address(address), m_listening(false) {}
+    : m_lfd(0), m_port(port), m_address(address), m_listening(false) {
+#ifdef _WIN32
+	  m_evt = NULL;
+#endif
+  }
 
   /**
    * destructor.
    */
-  ~TCPServer() { if (m_lfd > 0) {close(m_lfd);} }
+  ~TCPServer() { if (m_lfd > 0) {
+#ifdef _WIN32
+	  closesocket(m_lfd);
+	  if (m_evt != NULL)
+		  WSACloseEvent(m_evt);
+#else
+	  close(m_lfd);
+#endif
+  } }
 
   /**
    * start listening of tcp socket.
@@ -173,12 +216,30 @@ class TCPServer {
    * returns the file descriptor.
    * @return the file descriptor.
    */
-  int getFD() const { return m_lfd; }
+#ifdef _WIN32
+  WSAEVENT getEventHandle() {
+	  if (m_evt == NULL)	  {
+		  m_evt = WSACreateEvent();
+		  WSAEventSelect(m_lfd, m_evt, FD_READ | FD_WRITE | FD_CLOSE | FD_ACCEPT);
+	  }
+	  return m_evt;
+  }
+  int getEvents(LPWSANETWORKEVENTS lpNetEv){
+	  return WSAEnumNetworkEvents(m_lfd, m_evt, lpNetEv);
+  }
 
+#else
+  int getFD() const { return m_lfd; }
+#endif
 
  private:
   /** file descriptor from listening tcp socket */
+#ifdef _WIN32
+	 SOCKET m_lfd;
+	 WSAEVENT m_evt;
+#else
   int m_lfd;
+#endif
 
   /** listening tcp port */
   uint16_t m_port;

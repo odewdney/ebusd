@@ -19,7 +19,11 @@
 #ifndef EBUSD_DATAHANDLER_H_
 #define EBUSD_DATAHANDLER_H_
 
+#ifdef _WIN32
+#include "lib/utils/argp.h"
+#else
 #include <argp.h>
+#endif
 #include <map>
 #include <list>
 #include <string>

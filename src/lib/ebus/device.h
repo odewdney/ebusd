@@ -19,10 +19,17 @@
 #ifndef LIB_EBUS_DEVICE_H_
 #define LIB_EBUS_DEVICE_H_
 
+#ifdef _WIN32
+#include <WinSock2.h>
+typedef int ssize_t;
+#endif
+
+#ifndef _WIN32
 #include <unistd.h>
 #include <termios.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#endif
 #include <iostream>
 #include <fstream>
 #include "lib/ebus/result.h"
@@ -71,7 +78,7 @@ class Device {
    * @param initialSend whether to send an initial @a ESC symbol in @a open().
    */
   Device(const char* name, const bool checkDevice, const bool readOnly, const bool initialSend)
-    : m_name(name), m_checkDevice(checkDevice), m_readOnly(readOnly), m_initialSend(initialSend), m_fd(-1),
+	  : m_name(name), m_checkDevice(checkDevice), m_readOnly(readOnly), m_initialSend(initialSend), m_isOpen(false),
       m_listener(NULL) {}
 
   /**
@@ -165,14 +172,14 @@ class Device {
    * @param value the byte value to write.
    * @return the number of bytes written, or -1 on error.
    */
-  virtual ssize_t write(const symbol_t value) { return ::write(m_fd, &value, 1); }
+  virtual ssize_t write(const symbol_t value) = 0;
 
   /**
    * Read a single byte.
    * @param value the reference in which the read byte value is stored.
    * @return the number of bytes read, or -1 on error.
    */
-  virtual ssize_t read(symbol_t& value) { return ::read(m_fd, &value, 1); }
+  virtual ssize_t read(symbol_t& value) = 0;
 
   /** the device name (e.g. "/dev/ttyUSB0" for serial, "127.0.0.1:1234" for network). */
   const char* m_name;
@@ -186,10 +193,9 @@ class Device {
   /** whether to send an initial @a ESC symbol in @a open(). */
   const bool m_initialSend;
 
-  /** the opened file descriptor, or -1. */
-  int m_fd;
-
-
+  /** whether open **/
+  bool m_isOpen;
+  
  private:
   /** the @a DeviceListener, or NULL. */
   DeviceListener* m_listener;
@@ -216,15 +222,27 @@ class SerialDevice : public Device {
   // @copydoc
   void close() override;
 
-
  protected:
-  // @copydoc
+	 // @copydoc
+	 ssize_t write(const symbol_t value) override;
+
+	 // @copydoc
+	 ssize_t read(symbol_t& value) override;
+	 
+	 // @copydoc
   void checkDevice() override;
 
-
+  /** the opened file descriptor, or -1. */
+#ifdef _WIN32
+  HANDLE m_fh;
+#else
+  int m_fd;
+#endif
  private:
+#ifndef _WIN32
   /** the previous settings of the device for restoring. */
   termios m_oldSettings;
+#endif
 };
 
 /**
@@ -251,6 +269,8 @@ class NetworkDevice : public Device {
   // @copydoc
   result_t open() override;
 
+  // @copydoc
+  void close() override;
 
  protected:
   // @copydoc
@@ -265,6 +285,13 @@ class NetworkDevice : public Device {
   // @copydoc
   ssize_t read(symbol_t& value) override;
 
+
+  /** the opened file descriptor, or -1. */
+#ifdef _WIN32
+  SOCKET m_fs;
+#else
+  int m_fs;
+#endif
 
  private:
   /** the socket address of the device. */

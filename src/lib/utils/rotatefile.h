@@ -19,7 +19,10 @@
 #ifndef LIB_UTILS_ROTATEFILE_H_
 #define LIB_UTILS_ROTATEFILE_H_
 
+#ifdef _WIN32
+#else
 #include <unistd.h>
+#endif
 #include <stdint.h>
 #include <iostream>
 #include <fstream>

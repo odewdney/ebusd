@@ -21,10 +21,18 @@
 #endif
 
 #include "lib/utils/log.h"
+
+#ifdef _MSC_VER
+#include <Windows.h>
+#endif
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
+#ifdef _MSC_VER
+#else
 #include <sys/time.h>
+#endif
 #include <stdarg.h>
 #include <string.h>
 #include "lib/utils/clock.h"
@@ -62,7 +70,11 @@ LogFacility parseLogFacility(const char* facility) {
   if (!facility) {
     return lf_COUNT;
   }
+#ifdef _WIN32
+  char *input = _strdup(facility);
+#else
   char *input = strdup(facility);
+#endif
   char *opt = reinterpret_cast<char*>(input), *value = NULL;
   int val = getsubopt(&opt, (char *const *)facilityNames, &value);
   if (val < 0 || val >= lf_COUNT || value || *opt) {
@@ -74,7 +86,11 @@ LogFacility parseLogFacility(const char* facility) {
 }
 
 int parseLogFacilities(const char* facilities) {
-  char *input = strdup(facilities);
+#ifdef _WIN32
+  char *input = _strdup(facilities);
+#else
+	char *input = strdup(facilities);
+#endif
   char *opt = reinterpret_cast<char*>(input), *value = NULL;
   int newFacilites = 0;
   while (*opt) {
@@ -97,7 +113,11 @@ LogLevel parseLogLevel(const char* level) {
   if (!level) {
     return ll_COUNT;
   }
+#ifdef _WIN32
+  char *input = _strdup(level);
+#else
   char *input = strdup(level);
+#endif
   char *opt = reinterpret_cast<char*>(input), *value = NULL;
   int val = getsubopt(&opt, (char *const *)levelNames, &value);
   if (val < 0 || val >= ll_COUNT || value || *opt) {
@@ -132,7 +152,12 @@ LogLevel getFacilityLogLevel(LogFacility facility) {
 }
 
 bool setLogFile(const char* filename) {
-  FILE* newFile = fopen(filename, "a");
+#ifdef _WIN32
+	FILE* newFile = NULL;
+	errno_t err = fopen_s(&newFile, filename, "a");
+#else
+	FILE* newFile = fopen(filename, "a");
+#endif
   if (newFile == NULL) {
     return false;
   }
@@ -158,15 +183,26 @@ void logWrite(const char* facility, const char* level, const char* message, va_l
   if (s_logFile == NULL) {
     return;
   }
+#ifdef _WIN32
+  SYSTEMTIME st;
+  GetSystemTime(&st);
+#else
   struct timespec ts;
   struct tm td;
   clockGettime(&ts);
   localtime_r(&ts.tv_sec, &td);
+#endif
   char* buf;
+
   if (vasprintf(&buf, message, ap) >= 0 && buf) {
     fprintf(s_logFile, "%04d-%02d-%02d %02d:%02d:%02d.%03ld [%s %s] %s\n",
-      td.tm_year+1900, td.tm_mon+1, td.tm_mday,
+#ifdef _WIN32
+		st.wYear, st.wMonth, st.wDay,
+		st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
+#else
+		td.tm_year + 1900, td.tm_mon + 1, td.tm_mday,
       td.tm_hour, td.tm_min, td.tm_sec, ts.tv_nsec/1000000,
+#endif
       facility, level, buf);
     fflush(s_logFile);
   }
@@ -175,7 +211,8 @@ void logWrite(const char* facility, const char* level, const char* message, va_l
   }
 }
 
-void logWrite(const LogFacility facility, const LogLevel level, const char* message, ...) {
+void logWrite(const LogFacility facility, const LogLevel level, const char* message, ...)
+{
   va_list ap;
   va_start(ap, message);
   logWrite(facilityNames[facility], levelNames[level], message, ap);

@@ -19,7 +19,9 @@
 #ifndef EBUSD_BUSHANDLER_H_
 #define EBUSD_BUSHANDLER_H_
 
+#ifndef _WIN32
 #include <pthread.h>
+#endif
 #include <stdint.h>
 #include <string>
 #include <vector>

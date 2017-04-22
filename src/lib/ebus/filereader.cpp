@@ -17,6 +17,16 @@
  */
 
 #include "lib/ebus/filereader.h"
+#ifdef _WIN32
+#define S_ISDIR(x) (((x) & _S_IFDIR) != 0)
+#endif
+#ifdef _WIN32
+#define PATH_SEP_CHAR '\\'
+#else
+#define PATH_SEP_CHAR '/'
+#endif
+
+
 #include <sys/stat.h>
 #include <iostream>
 #include <string>
@@ -211,7 +221,7 @@ result_t MappedFileReader::readFromFile(const string filename, string& errorDesc
   if (defaults) {
     m_lastDefaults[""] = *defaults;
   }
-  size_t lastSep = filename.find_last_of('/');
+  size_t lastSep = filename.find_last_of(PATH_SEP_CHAR);
   string defaultsPart = lastSep == string::npos ? filename : filename.substr(lastSep+1);
   extractDefaultsFromFilename(defaultsPart, m_lastDefaults[""]);
   result_t result = FileReader::readFromFile(filename, errorDescription, verbose, defaults, hash, size, time);
@@ -223,7 +233,18 @@ result_t MappedFileReader::addFromFile(vector<string>& row, string& errorDescrip
     const string filename, unsigned int lineNo) {
   result_t result;
   if (lineNo == 1) {  // first line defines column names
-    result = getFieldMap(row, errorDescription);
+	  if (row.size() == 1) {
+		  map<string, string> rowMapped;
+		  vector< map<string, string> > subRowsMapped;
+
+		  rowMapped["type"] = "!include";
+		  rowMapped["file"] = row[0];
+		  result = addFromFile(rowMapped, subRowsMapped, errorDescription, filename, lineNo);
+		  return result;
+	  }
+	  else {
+		  result = getFieldMap(row, errorDescription);
+	  }
     if (result != RESULT_OK) {
       return result;
     }

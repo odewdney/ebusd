@@ -17,13 +17,28 @@
  */
 
 #include "lib/utils/tcpsocket.h"
+
+#ifdef _WIN32
+#include <Windows.h>
+#include <Ws2tcpip.h>
+typedef u_short in_port_t;
+#endif
+
 #include <fcntl.h>
+#ifndef _WIN32
 #include <arpa/inet.h>
 #include <netdb.h>
+#endif
 #include <string.h>
 #include <cstdlib>
 
 namespace ebusd {
+#ifdef _WIN32
+int inet_aton(const char *addr, struct in_addr*in)
+{
+	return InetPtonA(AF_INET, addr, in) == 1;
+}
+#endif
 
 TCPSocket::TCPSocket(int sfd, socketaddress* address) : m_sfd(sfd) {
   char ip[17];
@@ -33,7 +48,13 @@ TCPSocket::TCPSocket(int sfd, socketaddress* address) : m_sfd(sfd) {
 }
 
 bool TCPSocket::isValid() {
+#ifdef _WIN32
+	DWORD err = 0;
+	int errlen = sizeof(err);
+	return getsockopt(m_sfd, SOL_SOCKET, SO_ERROR, (char*)&err, &errlen) == 0 && err == 0;
+#else
   return fcntl(m_sfd, F_GETFL) != -1;
+#endif
 }
 
 
@@ -91,7 +112,7 @@ int TCPServer::start() {
     address.sin_addr.s_addr = INADDR_ANY;
   }
   int optval = 1;
-  setsockopt(m_lfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+  setsockopt(m_lfd, SOL_SOCKET, SO_REUSEADDR, (char*)&optval, sizeof(optval));
 
   int result = bind(m_lfd, (struct sockaddr*) &address, sizeof(address));
   if (result != 0) {
