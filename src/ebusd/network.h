@@ -59,6 +59,7 @@ class NetMessage {
    * Destructor.
    */
   ~NetMessage() {
+	  m_resultSet = true;
 #ifndef _WIN32
     pthread_mutex_destroy(&m_mutex);
     pthread_cond_destroy(&m_cond);
@@ -80,7 +81,8 @@ class NetMessage {
    * @param request the request data from the client.
    * @return true when the request is complete and the response shall be prepared.
    */
-	 bool add(string request);
+  bool add(const char* request);
+
   /**
    * Return whether this is a HTTP message.
    * @return whether this is a HTTP message.
@@ -115,6 +117,12 @@ class NetMessage {
 		m_lock.Wait();
 #else
       pthread_cond_wait(&m_cond, &m_mutex);
+	  while (!m_resultSet) {
+		  int wait = pthread_cond_wait(&m_cond, &m_mutex);
+		  if (wait != 0 && wait != ETIMEDOUT) {
+			  break;
+		  }
+	  }
 #endif
 	}
 

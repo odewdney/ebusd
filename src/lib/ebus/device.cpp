@@ -56,7 +56,7 @@ Device::~Device() {
   close();
 }
 
-Device* Device::create(const char* name, const bool checkDevice, const bool readOnly, const bool initialSend) {
+Device* Device::create(const char* name, bool checkDevice, bool readOnly, bool initialSend) {
   if (strchr(name, '/') == NULL && strchr(name, ':') != NULL) {
     char* in = strdup(name);
     bool udp = false;
@@ -71,7 +71,7 @@ Device* Device::create(const char* name, const bool checkDevice, const bool read
       return NULL;  // invalid protocol or missing port
     }
     result_t result = RESULT_OK;
-    unsigned int port = parseInt(portpos+1, 10, 1, 65535, result);
+    unsigned int port = parseInt(portpos+1, 10, 1, 65535, &result);
     if (result != RESULT_OK) {
       free(in);
       return NULL;  // invalid port
@@ -110,7 +110,7 @@ bool Device::isValid() {
   return m_isOpen;
 }
 
-result_t Device::send(const symbol_t value) {
+result_t Device::send(symbol_t value) {
   if (!isValid()) {
     return RESULT_ERR_DEVICE;
   }
@@ -123,7 +123,7 @@ result_t Device::send(const symbol_t value) {
   return RESULT_OK;
 }
 
-result_t Device::recv(const unsigned int timeout, symbol_t& value) {
+result_t Device::recv(unsigned int timeout, symbol_t* value) {
   if (!isValid()) {
     return RESULT_ERR_DEVICE;
   }
@@ -137,7 +137,7 @@ result_t Device::recv(const unsigned int timeout, symbol_t& value) {
     tdiff.tv_nsec = (timeout%1000000)*1000;
 #endif
 #ifdef HAVE_PPOLL
-    int nfds = 1;
+    nfds_t nfds = 1;
     struct pollfd fds[nfds];
 
     memset(fds, 0, sizeof(fds));
@@ -167,7 +167,7 @@ result_t Device::recv(const unsigned int timeout, symbol_t& value) {
   }
 
   // directly read byte from device
-  ssize_t nbytes = read(value);
+  ssize_t nbytes = read(*value);
   if (nbytes == 0) {
     return RESULT_ERR_EOF;
   }
@@ -175,7 +175,7 @@ result_t Device::recv(const unsigned int timeout, symbol_t& value) {
     return RESULT_ERR_DEVICE;
   }
   if (m_listener != NULL) {
-    m_listener->notifyDeviceData(value, true);
+    m_listener->notifyDeviceData(*value, true);
   }
   return RESULT_OK;
 }
@@ -435,7 +435,7 @@ bool NetworkDevice::available() {
   return m_buffer && m_bufLen > 0;
 }
 
-ssize_t NetworkDevice::write(const symbol_t value) {
+ssize_t NetworkDevice::write(symbol_t value) {
   m_bufLen = 0;  // flush read buffer
 #ifdef _WIN32
   return ::send(m_fs, (char*)value, 1, 0);

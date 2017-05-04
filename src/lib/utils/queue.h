@@ -123,7 +123,7 @@ class Queue {
 		clockGettime(&t);
 		t.tv_sec += timeout;
 		while (m_queue.empty()) {
-			if (pthread_cond_timedwait(&m_cond, &m_mutex, &t) == ETIMEDOUT) {
+			if (pthread_cond_timedwait(&m_cond, &m_mutex, &t) != 0) {
 				break;
 			}
 		}
@@ -155,6 +155,9 @@ class Queue {
 	m_lock.Aquire();
 #else
 	pthread_mutex_lock(&m_mutex);
+	struct timespec t;
+	clockGettime(&t);
+	t.tv_sec++;  // check thread death every second
 #endif
     do {
       size_t oldSize = m_queue.size();
@@ -168,7 +171,10 @@ class Queue {
 #ifdef _WIN32
 	  m_lock.Wait();
 #else
-      pthread_cond_wait(&m_cond, &m_mutex);
+	int ret = pthread_cond_timedwait(&m_cond, &m_mutex, &t);
+	if (ret != 0 && ret != ETIMEDOUT) {
+		break;
+	}
 #endif
     } while (wait);
 #ifdef _WIN32

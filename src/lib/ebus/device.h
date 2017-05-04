@@ -61,7 +61,7 @@ class DeviceListener {
    * @param symbol the received/sent symbol.
    * @param received @a true on reception, @a false on sending.
    */
-  virtual void notifyDeviceData(const symbol_t symbol, bool received) = 0;  // abstract
+  virtual void notifyDeviceData(symbol_t symbol, bool received) = 0;  // abstract
 };
 
 
@@ -79,7 +79,7 @@ class Device {
    */
   Device(const char* name, const bool checkDevice, const bool readOnly, const bool initialSend)
 	  : m_name(name), m_checkDevice(checkDevice), m_readOnly(readOnly), m_initialSend(initialSend), m_isOpen(false),
-      m_listener(NULL) {}
+	 m_listener(NULL) {}
 
   /**
    * Destructor.
@@ -95,8 +95,8 @@ class Device {
    * @return the new @a Device, or NULL on error.
    * Note: the caller needs to free the created instance.
    */
-  static Device* create(const char* name, const bool checkDevice = true, const bool readOnly = false,
-      const bool initialSend = false);
+  static Device* create(const char* name, bool checkDevice = true, bool readOnly = false,
+      bool initialSend = false);
 
   /**
    * Get the transfer latency of this device.
@@ -120,7 +120,7 @@ class Device {
    * @param value the byte value to write.
    * @return the @a result_t code.
    */
-  result_t send(const symbol_t value);
+  result_t send(symbol_t value);
 
   /**
    * Read a single byte from the device.
@@ -128,7 +128,7 @@ class Device {
    * @param value the reference in which the received byte value is stored.
    * @return the result_t code.
    */
-  result_t recv(const unsigned int timeout, symbol_t& value);
+  result_t recv(unsigned int timeout, symbol_t* value);
 
   /**
    * Return the device name.
@@ -213,7 +213,7 @@ class SerialDevice : public Device {
    * @param readOnly whether to allow read access to the device only.
    * @param initialSend whether to send an initial @a ESC symbol in @a open().
    */
-  SerialDevice(const char* name, const bool checkDevice, const bool readOnly, const bool initialSend)
+  SerialDevice(const char* name, bool checkDevice, bool readOnly, bool initialSend)
     : Device(name, checkDevice, readOnly, initialSend) {}
 
   // @copydoc
@@ -258,10 +258,19 @@ class NetworkDevice : public Device {
    * @param initialSend whether to send an initial @a ESC symbol in @a open().
    * @param udp true for UDP, false to TCP.
    */
-  NetworkDevice(const char* name, const struct sockaddr_in address, const bool readOnly, const bool initialSend,
-    const bool udp)
+  NetworkDevice(const char* name, const struct sockaddr_in& address, bool readOnly, bool initialSend,
+    bool udp)
     : Device(name, true, readOnly, initialSend), m_address(address), m_udp(udp),
       m_buffer(NULL), m_bufSize(0), m_bufLen(0), m_bufPos(0) {}
+
+  /**
+   * Destructor.
+   */
+  virtual ~NetworkDevice() {
+    if (m_buffer) {
+      free(m_buffer);
+    }
+  }
 
   // @copydoc
   unsigned int getLatency() const override { return 10000; }
