@@ -46,9 +46,13 @@ using std::setw;
 using std::dec;
 
 
-result_t FileReader::readFromFile(const string& filename, bool verbose, map<string, string>* defaults,
+result_t FileReader::readFromFile(const string& xfilename, bool verbose, map<string, string>* defaults,
     string* errorDescription, size_t* hash, size_t* size, time_t* time) {
   struct stat st;
+  string filename = xfilename;
+  if (filename.substr(0, 2) == "~~")
+	  filename = filename.substr(2);
+
   if (stat(filename.c_str(), &st) != 0) {
     *errorDescription = filename;
     return RESULT_ERR_NOTFOUND;
@@ -269,14 +273,24 @@ result_t MappedFileReader::addFromFile(const string& filename, unsigned int line
   result_t result;
   if (lineNo == 1) {  // first line defines column names
 	  if (row->size() == 1) {
+		  /*
 		  map<string, string> rowMapped;
 		  vector< map<string, string> > subRowsMapped;
 
 		  rowMapped["type"] = "!include";
-		  rowMapped["file"] = (*row)[0];
-		  //result = addFromFile(rowMapped, subRowsMapped, errorDescription, filename, lineNo);
+		  rowMapped["file"] = "~~" + (*row)[0];
 		  result = addFromFile(filename, lineNo, &rowMapped, &subRowsMapped, errorDescription);
 		  return result;
+		  */
+		  size_t lastSep = filename.find_last_of(PATH_SEP_CHAR);
+		  string incfilename = lastSep == string::npos ? filename : filename.substr(0,lastSep + 1);
+		  incfilename += (*row)[0];
+		  bool verbose = false;
+		  map<string, string>* defaults = NULL;
+		  size_t hash, size;
+		  time_t time;
+		  result = FileReader::readFromFile(incfilename, verbose, defaults, errorDescription, &hash, &size, &time);
+
 	  }
 	  else {
 		  result = getFieldMap(m_preferLanguage, row, errorDescription);

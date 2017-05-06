@@ -669,7 +669,9 @@ void shutdown() {
   }
   s_templatesByPath.clear();
 
-#ifndef _WIN32
+#ifdef _WIN32
+  SetConsoleCtrlHandler(NULL, FALSE);
+#else
   // reset all signal handlers to default
   signal(SIGHUP, SIG_DFL);
   signal(SIGINT, SIG_DFL);
@@ -689,7 +691,18 @@ void shutdown() {
  * The signal handling function.
  * @param sig the received signal.
  */
-#ifndef _WIN32
+#ifdef _WIN32
+BOOL WINAPI signalHandler(DWORD dwCtrlType)
+{
+	switch (dwCtrlType)
+	{
+	case CTRL_C_EVENT:
+		s_mainLoop->shutdown();
+		return TRUE;
+	}
+	return false;
+}
+#else
 void signalHandler(int sig) {
   switch (sig) {
   case SIGHUP:
@@ -1225,7 +1238,9 @@ int main(int argc, char* argv[]) {
     daemonize();  // make me daemon
   }
 
-#ifndef _WIN32
+#ifdef _WIN32
+  SetConsoleCtrlHandler(signalHandler, TRUE);
+#else
   // trap signals that we expect to receive
   signal(SIGHUP, signalHandler);
   signal(SIGINT, signalHandler);
