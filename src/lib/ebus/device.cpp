@@ -190,7 +190,7 @@ result_t SerialDevice::open() {
   char comName[100];
   strcpy_s(comName, sizeof(comName), "\\\\.\\");
   strncat_s(comName, sizeof(comName), m_name, sizeof(comName));
-  m_fh = ::CreateFileA(comName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+  m_fh = ::CreateFileA(comName, GENERIC_READ | GENERIC_WRITE , 0, NULL, OPEN_EXISTING, FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH, NULL);
   if ( m_fh == NULL){
 	  return RESULT_ERR_NOTFOUND;
   }
@@ -299,6 +299,7 @@ ssize_t SerialDevice::write(const symbol_t value)
 #ifdef _WIN32
 	DWORD w;
 	if (::WriteFile(m_fh, &value, 1, &w, NULL )) {
+		FlushFileBuffers(m_fh);
 		return w;
 	}
 	return 0;

@@ -935,7 +935,7 @@ void Message::decode(bool leadingSeparator, OutputFormat outputFormat, ostringst
   if (leadingSeparator) {
     *output << ",";
   }
-  *output << "\n  \"" << getName() << "\": {"
+  *output << "\n  \"" << getName() << "\": {"  // TODO include read/write/passive for overlapping names
           << "\n   \"lastup\": " << setw(0) << dec << static_cast<unsigned>(getLastUpdateTime());
   if (getLastUpdateTime() != 0) {
     *output << ",\n   \"zz\": \"" << setfill('0') << setw(2) << hex << static_cast<unsigned>(getDstAddress()) << "\"";
@@ -1631,31 +1631,31 @@ result_t Instruction::create(const string& contextPath, const string& type,
   return RESULT_ERR_INVALID_ARG;
 }
 
-string Instruction::getDestination() const {
+void Instruction::getDestination(ostringstream* ostream) const {
   // ZZ.circuit[.suffix]
-  string ret;
+  bool empty = true;
   auto it = m_defaults.find("zz");
   if (it != m_defaults.end() && !it->second.empty()) {
-    ret = it->second;
+    *ostream << it->second;
+    empty = false;
   }
   it = m_defaults.find("circuit");
   string circuit = it == m_defaults.end() ? "" : it->second;
   it = m_defaults.find("suffix");
   string suffix = it == m_defaults.end() ? "" : it->second;
   if (!circuit.empty() || !suffix.empty()) {
-    if (!ret.empty()) {
-      ret += ".";
+    if (!empty) {
+      *ostream << ".";
     }
     if (circuit.empty()) {
-      ret += "*";
+      *ostream << "*";
     } else {
-      ret += circuit;
+      *ostream << circuit;
     }
     if (!suffix.empty()) {
-      ret += suffix;
+      *ostream << suffix;
     }
   }
-  return ret;
 }
 
 
@@ -1666,14 +1666,17 @@ result_t LoadInstruction::execute(MessageMap* messages, ostringstream* log) {
     *log << ", ";
   }
   if (result != RESULT_OK) {
-    *log << "error " << (isSingleton() ? "loading \"" : "including \"") << m_filename << "\" for \""
-        << getDestination() << "\": " << getResultCode(result);
+    *log << "error " << (isSingleton() ? "loading \"" : "including \"") << m_filename << "\" for \"";
+    getDestination(log);
+    *log << "\": " << getResultCode(result);
     if (!errorDescription.empty()) {
       *log << " " << errorDescription;
     }
     return result;
   }
-  *log << (isSingleton() ? "loaded \"" : "included \"") << m_filename << "\" for \"" << getDestination() << "\"";
+  *log << (isSingleton() ? "loaded \"" : "included \"") << m_filename << "\" for \"";
+  getDestination(log);
+  *log << "\"";
   if (isSingleton() && !m_defaults["zz"].empty()) {
     result_t temp;
     symbol_t address = (symbol_t)parseInt(m_defaults["zz"].c_str(), 16, 0, 0xff, &temp);
@@ -1690,7 +1693,7 @@ result_t LoadInstruction::execute(MessageMap* messages, ostringstream* log) {
         ostringstream out;
         m_condition->dump(true, &out);
         comment = out.str();
-        *log << " ("+comment+")";
+        *log << " (" << comment << ")";
       }
       messages->addLoadedFile(address, m_filename, comment);
     }
@@ -1784,9 +1787,8 @@ result_t MessageMap::add(bool storeByName, Message* message) {
 }
 
 result_t MessageMap::getFieldMap(const string& preferLanguage, vector<string>* row, string* errorDescription) const {
-  // type (r[1-9];w;u),circuit,name,[comment],[QQ],ZZ,PBSB,[ID],field1,part (m/s),datatypes/templates,divider/values,
-  //  unit,comment
-  // minimum: type,name,PBSB,field,datatype
+  // type,circuit,name,[comment],[QQ],ZZ,PBSB,[ID],*name,[part],type,divisor/values,unit,comment
+  // minimum: type,name,PBSB,*type
   if (row->empty()) {
     for (const auto& col : defaultMessageFieldMap) {
       row->push_back(col);
@@ -1800,30 +1802,37 @@ result_t MessageMap::getFieldMap(const string& preferLanguage, vector<string>* r
     string lowerName = name;
     tolower(&lowerName);
     trim(&lowerName);
+    bool toDataFields;
+    if (!lowerName.empty() && lowerName[0] == '*') {
+      lowerName.erase(0, 1);
+      toDataFields = true;
+    } else {
+      toDataFields = false;
+    }
     if (lowerName.empty()) {
       *errorDescription = "missing name in column " + AttributedItem::formatInt(col);
       return RESULT_ERR_INVALID_ARG;
     }
-    bool supportsLang = false, toDataFields = false;
-    string useName;
-    if (inDataFields) {
-      useName = getDataFieldName(lowerName, &supportsLang);
-    } else {
-      useName = getMessageFieldName(lowerName, &supportsLang);
-      if (useName.empty()) {
-        useName = getDataFieldName(lowerName, &supportsLang);
-        toDataFields = !useName.empty();
+    if (toDataFields) {
+      if (inDataFields) {
+        if (seen.find("type") == seen.end()) {
+          *errorDescription = "missing field type";
+          return RESULT_ERR_EOF;  // require at least name and type
+        }
+      } else {
+        if (seen.find("type") == seen.end() || seen.find("name") == seen.end() || seen.find("pbsb") == seen.end()) {
+          *errorDescription = "missing message type/name/pbsb";
+          return RESULT_ERR_EOF;  // require at least type, name, and pbsb
+        }
+        inDataFields = true;
       }
+      seen.clear();
     }
-    bool unknown = useName.empty();
-    size_t langPos = supportsLang ? lowerName.find_last_of('.') : string::npos;
-    map<string, size_t>::iterator previous;
-    if (langPos == lowerName.length()-3) {
+    size_t langPos = lowerName.find_last_of('.');
+    if (langPos != string::npos && langPos > 0 && langPos == lowerName.length()-3) {
       string lang = lowerName.substr(langPos+1);
-      if (unknown) {
-        useName = lowerName.substr(0, langPos);
-      }
-      previous = seen.find(useName);
+      lowerName.erase(langPos);
+      map<string, size_t>::iterator previous = seen.find(lowerName);
       if (previous != seen.end()) {
         if (lang != preferLanguage) {
           // skip this column
@@ -1832,54 +1841,29 @@ result_t MessageMap::getFieldMap(const string& preferLanguage, vector<string>* r
         }
         // replace previous
         (*row)[previous->second] = SKIP_COLUMN;
-        seen.erase(useName);
-        previous = seen.end();
+        seen.erase(lowerName);
       }
     } else {
-      if (unknown) {
-        useName = lowerName;
-      }
-      previous = seen.find(useName);
-    }
-    if (inDataFields) {
-      if (!unknown && previous != seen.end()) {
-        if (seen.find("name") == seen.end() || seen.find("type") == seen.end()) {
-          *errorDescription = "missing field name/type as of already seen "+useName;
-          return RESULT_ERR_EOF;  // require at least name and type
+      map<string, size_t>::iterator previous = seen.find(lowerName);
+      if (seen.find(lowerName) != seen.end()) {
+        if (inDataFields) {
+          *errorDescription = "duplicate field " + name;
+        } else {
+          *errorDescription = "duplicate message " + name;
         }
-        seen.clear();
-      }
-    } else {
-      /*if (!unknown && (useName != "name" || seen.find("name") == seen.end())) {
-        // keep first name for message
-      } else {*/
-      if (toDataFields) {
-        if (seen.find("type") == seen.end() || seen.find("name") == seen.end() || seen.find("pbsb") == seen.end()) {
-          *errorDescription = "missing message name/type/pbsb";
-          return RESULT_ERR_EOF;  // require at least type, name, and pbsb
-        }
-        inDataFields = true;
-        seen.clear();
-      }
-      if (!inDataFields && seen.find(useName) != seen.end()) {
-        *errorDescription = "duplicate message " + useName;
         return RESULT_ERR_INVALID_ARG;
       }
     }
-    if (seen.empty() && inDataFields) {
-      name = "*" + useName;  // data field repetition
-    } else {
-      name = useName;
-    }
-    seen[useName] = col;
+    name = toDataFields ? "*"+lowerName : lowerName;
+    seen[lowerName] = col;
   }
   if (inDataFields) {
-    if (seen.find("name") == seen.end() || seen.find("type") == seen.end()) {
-      *errorDescription = "missing field name/type";
+    if (seen.find("type") == seen.end()) {
+      *errorDescription = "missing field type";
       return RESULT_ERR_EOF;  // require at least name and type
     }
   } else if (seen.find("type") == seen.end() || seen.find("name") == seen.end() || seen.find("pbsb") == seen.end()) {
-    *errorDescription = "missing message name/type/pbsb";
+    *errorDescription = "missing message type/name/pbsb";
     return RESULT_ERR_EOF;  // require at least type, name, and pbsb
   }
   return RESULT_OK;
@@ -2265,8 +2249,9 @@ result_t MessageMap::executeInstructions(void (*readMessageFunc)(Message* messag
             &errorDescription);
         if (result != RESULT_OK) {
           overallResult = result;
-          *log << "error resolving condition for \"" << instruction->getDestination() << "\": "
-              << getResultCode(result);
+          *log << "error resolving condition for \"";
+          instruction->getDestination(log);
+          *log << "\": " << getResultCode(result);
           if (!errorDescription.empty()) {
             *log << " " << errorDescription;
           }
@@ -2401,11 +2386,9 @@ Message* MessageMap::find(const string& circuit, const string& name, const strin
   return NULL;
 }
 
-deque<Message*> MessageMap::findAll(const string& circuit, const string& name, const string& levels,
-    bool completeMatch, bool withRead, bool withWrite, bool withPassive,
-    bool includeEmptyLevel, bool onlyAvailable,
-    time_t since, time_t until) const {
-  deque<Message*> ret;
+void MessageMap::findAll(const string& circuit, const string& name, const string& levels,
+    bool completeMatch, bool withRead, bool withWrite, bool withPassive, bool includeEmptyLevel, bool onlyAvailable,
+    time_t since, time_t until, deque<Message*>* messages) const {
   string lcircuit = circuit;
   FileReader::tolower(&lcircuit);
   string lname = name;
@@ -2459,12 +2442,10 @@ deque<Message*> MessageMap::findAll(const string& circuit, const string& name, c
         }
       }
       if (!onlyAvailable || message->isAvailable()) {
-        ret.push_back(message);
+        messages->push_back(message);
       }
     }
   }
-
-  return ret;
 }
 
 Message* MessageMap::find(const MasterSymbolString& master, bool anyDestination,
@@ -2547,7 +2528,8 @@ void MessageMap::invalidateCache(Message* message) {
   message->m_lastUpdateTime = 0;
   string circuit = message->getCircuit();
   string name = message->getName();
-  deque<Message*> messages = findAll(circuit, name, "*", true, true, true, true);
+  deque<Message*> messages;
+  findAll(circuit, name, "*", true, true, true, true, true, true, 0, 0, &messages);
   for (auto checkMessage : messages) {
     if (checkMessage != message) {
       checkMessage->m_lastUpdateTime = 0;

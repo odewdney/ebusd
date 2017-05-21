@@ -47,7 +47,7 @@ class NetMessage {
    * Constructor.
    * @param isHttp whether this is a HTTP message.
    */
-  explicit NetMessage(const bool isHttp)
+  explicit NetMessage(bool isHttp)
     : m_isHttp(isHttp), m_resultSet(false), m_disconnect(false), m_listening(false), m_listenSince(0) {
 #ifndef _WIN32
     pthread_mutex_init(&m_mutex, NULL);
@@ -93,19 +93,19 @@ class NetMessage {
    * Return the request string.
    * @return the request string.
    */
-  string getRequest() const { return m_request; }
+  const string& getRequest() const { return m_request; }
 
   /**
    * Return the current user name.
    * @return the current user name.
    */
-  string getUser() const { return m_user; }
+  const string& getUser() const { return m_user; }
 
   /**
    * Wait for the result being set and return the result string.
-   * @return the result string.
+   * @param result the variable in which to store the result string.
    */
-  string getResult() {
+	void getResult(string* result) {
 #ifdef _WIN32
 	  m_lock.Aquire();
 #else
@@ -127,7 +127,7 @@ class NetMessage {
 	}
 
     m_request.clear();
-    string result = m_result;
+    *result = m_result;
     m_result.clear();
     m_resultSet = false;
 #ifdef _WIN32
@@ -135,8 +135,6 @@ class NetMessage {
 #else
     pthread_mutex_unlock(&m_mutex);
 #endif
-
-    return result;
   }
 
   /**
@@ -147,8 +145,7 @@ class NetMessage {
    * @param listenUntil the end time to which to updates were added (exclusive).
    * @param disconnect true when the client shall be disconnected.
    */
-  void setResult(const string result, const string user, const bool listening, const time_t listenUntil,
-      const bool disconnect) {
+	void setResult(const string& result, const string& user, bool listening, time_t listenUntil, bool disconnect) {
 #ifdef _WIN32
 	  m_lock.Aquire();
 #else
@@ -174,7 +171,12 @@ class NetMessage {
    * @param listenSince set to the start time from which to add updates (inclusive).
    * @return whether the client is in listening mode.
    */
-  bool isListening(time_t* listenSince=NULL) { if (listenSince) { *listenSince = m_listenSince; } return m_listening; }
+  bool isListening(time_t* listenSince = NULL) {
+    if (listenSince) {
+      *listenSince = m_listenSince;
+    }
+    return m_listening;
+  }
 
   /**
    * Return whether the client shall be disconnected.
