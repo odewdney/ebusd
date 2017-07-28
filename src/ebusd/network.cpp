@@ -244,6 +244,10 @@ Network::Network(const bool local, const uint16_t port, const uint16_t httpPort,
 
 Network::~Network() {
   stop();
+  NetMessage* netMsg;
+  while ((netMsg = m_netQueue->pop()) != NULL) {
+    netMsg->setResult("ERR: shutdown", "", false, 0, true);
+  }
   while (!m_connections.empty()) {
     Connection* connection = m_connections.back();
     m_connections.pop_back();

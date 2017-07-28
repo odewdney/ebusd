@@ -36,6 +36,9 @@ typedef u_short in_port_t;
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#ifdef HAVE_LINUX_SERIAL
+#  include <linux/serial.h>
+#endif
 #endif
 #include <errno.h>
 #ifdef HAVE_PPOLL
@@ -239,6 +242,14 @@ result_t SerialDevice::open() {
     close();
     return RESULT_ERR_DEVICE;
   }
+
+#ifdef HAVE_LINUX_SERIAL
+  struct serial_struct serial;
+  if (ioctl(m_fd, TIOCGSERIAL, &serial) == 0) {
+    serial.flags |= ASYNC_LOW_LATENCY;
+    ioctl(m_fd, TIOCSSERIAL, &serial);
+  }
+#endif
 
   // save current settings
   tcgetattr(m_fd, &m_oldSettings);

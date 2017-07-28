@@ -106,25 +106,17 @@ class NetMessage {
    * @param result the variable in which to store the result string.
    */
 	void getResult(string* result) {
-#ifdef _WIN32
-	  m_lock.Aquire();
-#else
-    pthread_mutex_lock(&m_mutex);
-#endif
 
-	while (!m_resultSet) {
 #ifdef _WIN32
+		m_lock.Aquire();
 		m_lock.Wait();
 #else
-      pthread_cond_wait(&m_cond, &m_mutex);
-	  while (!m_resultSet) {
-		  int wait = pthread_cond_wait(&m_cond, &m_mutex);
-		  if (wait != 0 && wait != ETIMEDOUT) {
-			  break;
-		  }
+		pthread_mutex_lock(&m_mutex);
+		if (!m_resultSet) {
+		  pthread_cond_wait(&m_cond, &m_mutex);
 	  }
+
 #endif
-	}
 
     m_request.clear();
     *result = m_result;
