@@ -192,7 +192,7 @@ void logWrite(const char* facility, const char* level, const char* message, va_l
   clockGettime(&ts);
   localtime_r(&ts.tv_sec, &td);
 #endif
-  char* buf;
+  char* buf = NULL;
 
   if (vasprintf(&buf, message, ap) >= 0 && buf) {
     fprintf(s_logFile, "%04d-%02d-%02d %02d:%02d:%02d.%03ld [%s %s] %s\n",
